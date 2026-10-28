@@ -1,5 +1,6 @@
 /* Pure helpers for filtering, counting, sorting and pairing records. No DOM here, so they can be tested in Node. */
 import { key } from "./records.js";
+import { VIBES, MOODS, STYLE_MOODS } from "./vibes.js";
 
 /* Best known year: the original release (from the master) when we have it, else this pressing */
 export function yearOf(r) { return r.origYear || r.year || 0; }
@@ -15,6 +16,31 @@ export function fmtMain(r) {
 
 export function labels(r) { return (r.label || "").split(/\s*,\s*/).filter(Boolean); }
 
+/* Hand-written vibe words for this album, if there are any */
+const vkey = (a, t) => [a, t].map(s => (s || "").toLowerCase().replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim()).join("|");
+let vibeMap = null;
+export function vibeOf(r) {
+  if (!vibeMap) {
+    vibeMap = {};
+    VIBES.split("\n").forEach(l => { const p = l.split("|"); if (p.length > 2) vibeMap[vkey(p[0], p[1])] = p.slice(2).join("|"); });
+  }
+  return vibeMap[vkey(r.artist, r.title)] || "";
+}
+export function vibeWords(r) {
+  const v = vibeOf(r).split(" \u2014 ")[1];
+  return v ? v.toLowerCase().split(/\s*,\s*/).filter(Boolean) : [];
+}
+/* Mood clusters (indexes into MOODS, as strings) from the vibe words, else from Discogs styles */
+export function moodsOf(r) {
+  const w = vibeWords(r), out = [];
+  MOODS.forEach((m, i) => {
+    const hit = w.length ? w.some(x => m.indexOf(x) > -1) : (r.styles || []).some(s => STYLE_MOODS[i].indexOf(s) > -1);
+    if (hit) out.push(String(i));
+  });
+  return out;
+}
+export function moodName(i) { return MOODS[i].slice(0, 3).join(" / "); }
+
 /* Every filter is optional; a record passes when it matches all the ones that are set */
 export function matches(r, f, favs) {
   return (!f.artist || r.artist === f.artist)
@@ -24,6 +50,7 @@ export function matches(r, f, favs) {
     && (!f.label || labels(r).indexOf(f.label) > -1)
     && (!f.decade || decade(yearOf(r)) === f.decade)
     && (!f.folder || r.folder === f.folder)
+    && (!f.mood || moodsOf(r).indexOf(f.mood) > -1)
     && (!f.favOnly || !!(favs && favs[key(r)]));
 }
 
@@ -63,12 +90,12 @@ export function baseTitle(s) { return (s || "").replace(/\s*\([^)]*\)/g, "").tri
 export function pairs(records, r, n = 8) {
   const S = r.styles || [], G = r.genres || [], k = key(r), out = [], seen = {};
   if (!S.length && !G.length) return out;
-  const y = yearOf(r);
+  const y = yearOf(r), RM = moodsOf(r);
   records.forEach(o => {
     if (key(o) === k || o.artist === r.artist || nw(o.title) === nw(r.title)) return;
     const ss = (o.styles || []).filter(x => S.indexOf(x) > -1), gs = (o.genres || []).filter(x => G.indexOf(x) > -1);
     if (!ss.length && !gs.length) return;
-    let sc = ss.length * 3 + gs.length;
+    let sc = ss.length * 3 + gs.length + moodsOf(o).filter(m => RM.indexOf(m) > -1).length * 2;
     const oy = yearOf(o), d = (y && oy) ? Math.abs(y - oy) : null;
     if (d !== null) sc += d <= 3 ? 3 : d <= 7 ? 2 : d <= 12 ? 1 : 0;
     const dk = nw(o.artist + " " + o.title);

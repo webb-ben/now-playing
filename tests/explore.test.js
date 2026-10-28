@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { yearOf, decade, fmtMain, matches, tally, sortRecords, search, pairs, baseTitle, nw } from "../js/explore.js";
+import { yearOf, decade, fmtMain, matches, tally, sortRecords, search, pairs, baseTitle, nw, vibeOf, moodsOf, moodName } from "../js/explore.js";
 
 const rec = o => Object.assign({ id: "", artist: "", title: "", label: "", format: "", formatName: "Vinyl", qty: 1, descs: ["LP"],
   year: 0, origYear: 0, genres: [], styles: [], added: "", folder: "" }, o);
@@ -63,4 +63,15 @@ test("baseTitle and nw normalize titles for matching", () => {
   assert.equal(baseTitle("Dots And Loops (Expanded Edition)"), "Dots And Loops");
   assert.equal(nw("Power, Corruption & Lies"), "power corruption and lies");
   assert.equal(nw("Beyoncé"), "beyonce");
+});
+
+test("moods come from hand-written vibe words first, then Discogs styles", () => {
+  const fever = rec({ artist: "Kylie Minogue", title: "Fever", styles: ["Ambient"] });
+  assert.match(vibeOf(fever), /sleek, glittering/);
+  assert.deepEqual(moodsOf(fever), ["1"]);
+  assert.equal(moodName("1"), "club-ready / dancefloor / danceable");
+  assert.deepEqual(moodsOf(rec({ artist: "Someone", title: "Else", styles: ["Dream Pop", "Disco"] })), ["1", "2"]);
+  assert.deepEqual(moodsOf(rec({ artist: "Someone", title: "Else", styles: ["Polka"] })), []);
+  assert.ok(matches(A, { mood: "2" }, {}));
+  assert.ok(!matches(D, { mood: "2" }, {}));
 });

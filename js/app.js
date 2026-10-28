@@ -1,6 +1,6 @@
 import { setToken, getUser, getFolders, getCollection, getRelease, getMaster } from "./discogs.js";
 import { fromDiscogsList, fromText, key } from "./records.js";
-import { yearOf, decade, fmtMain, labels, matches, tally, byName, sortRecords, search, pairs, baseTitle } from "./explore.js";
+import { yearOf, decade, fmtMain, labels, moodsOf, moodName, vibeWords, matches, tally, byName, sortRecords, search, pairs, baseTitle } from "./explore.js";
 import { read, store, setCollection, readC, storeC, cache } from "./store.js";
 import { fetchWiki } from "./wiki.js";
 
@@ -35,7 +35,7 @@ let PLAYS = {}, FAVS = {}, NOTES = {}, QUEUE = [], HIST = [], nowKey = "", pvKey
 const MASTERS = read("np:masters") || {};          // master id -> original release year (0 when Discogs has none)
 const DETAILS = cache("releases", 400);            // release id -> tracklist, videos, community stats
 const WIKI = cache("wiki", 400);                   // record key -> Wikipedia intro
-const FILTERS = { fArtist: "artist", fFormat: "format", fGenre: "genre", fStyle: "style", fLabel: "label", fDecade: "decade", fFolder: "folder" };
+const FILTERS = { fArtist: "artist", fFormat: "format", fGenre: "genre", fStyle: "style", fLabel: "label", fDecade: "decade", fMood: "mood", fFolder: "folder" };
 
 function recByKey(k) { return byKey[k] || null; }
 function applyMasters() { records.forEach(r => { if (r.masterId && MASTERS[r.masterId]) r.origYear = MASTERS[r.masterId]; }); }
@@ -151,6 +151,7 @@ function fillFilters() {
   fill($("fStyle"), alpha(tally(records, r => r.styles)), "Any style");
   fill($("fLabel"), alpha(tally(records, labels)), "Any label");
   fill($("fDecade"), tally(records, r => decade(yearOf(r))).sort((a, b) => a[0] < b[0] ? -1 : 1), "Any decade");
+  fill($("fMood"), tally(records, moodsOf).sort((a, b) => a[0] - b[0]).map(([i, n]) => [i, n, moodName(i)]), "Any mood");
   const fr = tally(records, r => r.folder).filter(x => FOLDERS[x[0]] || collection === CSV).map(x => [x[0], x[1], FOLDERS[x[0]] || x[0]]);
   fill($("fFolder"), fr, "Any folder");
   $("folderWrap").hidden = fr.length < 2;
@@ -199,19 +200,21 @@ function renderStats(p) {
     ["Genres", "fGenre", tally(p, r => r.genres).slice(0, 8)],
     ["Styles", "fStyle", tally(p, r => r.styles).slice(0, 10)],
     ["Decades", "fDecade", tally(p, r => decade(yearOf(r))).sort((a, b) => a[0] < b[0] ? -1 : 1)],
+    ["Moods", "fMood", tally(p, moodsOf).sort((a, b) => a[0] - b[0]), moodName],
     ["Artists", "fArtist", tally(p, r => r.artist).slice(0, 8)],
     ["Labels", "fLabel", tally(p, labels).slice(0, 8)],
     ["Formats", "fFormat", tally(p, fmtMain).slice(0, 6)]
   ];
-  sections.forEach(([name, id, rows]) => {
+  sections.forEach(([name, id, rows, label]) => {
     if (!rows.length || (rows.length === 1 && $(id).value)) return;
     const sec = el("div"), max = Math.max(...rows.map(x => x[1]));
     sec.appendChild(el("h3", null, name));
     rows.forEach(([v, n]) => {
       const b = el("button", "bar"); b.type = "button";
-      b.title = "Filter: " + v;
+      const text = label ? label(v) : v;
+      b.title = "Filter: " + text;
       const t = el("span", "bt"), i = el("i"); i.style.width = Math.max(4, Math.round(100 * n / max)) + "%"; t.appendChild(i);
-      b.appendChild(el("span", "bn", v)); b.appendChild(t); b.appendChild(el("span", "bc", String(n)));
+      b.appendChild(el("span", "bn", text)); b.appendChild(t); b.appendChild(el("span", "bc", String(n)));
       b.onclick = () => { $(id).value = v; seen = {}; listCap = 200; updatePool(); };
       sec.appendChild(b);
     });
@@ -454,7 +457,7 @@ function renderView(V) {
   $(p + "Title").textContent = r.title;
   $(p + "Artist").textContent = r.artist || "Unknown artist";
   $(p + "Meta").textContent = [yearText(r), fmtMain(r) || r.format, r.label, r.catno].filter(Boolean).join(" · ");
-  $(p + "Vibe").textContent = genreLine(r);
+  $(p + "Vibe").textContent = [genreLine(r), vibeWords(r).join(", ")].filter(Boolean).join(" \u2014 ");
 
   const L = $(p + "Links"); L.innerHTML = "";
   const links = [];
