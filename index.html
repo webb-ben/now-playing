@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Now Playing</title>
+<meta name="description" content="Pull in any public Discogs collection, explore it, and pick something to spin.">
+<link rel="stylesheet" href="css/styles.css">
+<script>
+try{var _t=localStorage.getItem("np:theme");if(_t==="dark"||_t==="light")document.documentElement.setAttribute("data-theme",_t)}catch(e){}
+</script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<main>
+<button class="tgl" id="themeBtn" type="button" aria-label="Toggle dark mode"></button>
+<h1>Now Playing</h1>
+<p class="sub" id="status">Enter a Discogs username to pull in their public collection.</p>
+
+<form class="card userbar" id="userForm" autocomplete="off">
+  <div id="userInfo" class="who" hidden>
+    <img id="avatar" alt="" width="44" height="44">
+    <div class="whoText">
+      <div class="artist">Collection</div>
+      <a id="userLink" target="_blank" rel="noopener"></a>
+      <div class="meta" id="userMeta"></div>
+    </div>
+  </div>
+  <div class="row urow">
+    <div class="grow"><label for="username">Discogs username</label><input type="text" id="username" placeholder="e.g. webb-ben" spellcheck="false" autocapitalize="off"></div>
+    <button class="btn" id="loadUser" type="submit">Load</button>
+    <button class="btn ghost" id="refresh" type="button" hidden>Refresh</button>
+    <button class="btn ghost" id="cancel" type="button" hidden>Cancel</button>
+  </div>
+  <div class="progress" id="progress" hidden><div id="progressBar"></div></div>
+  <details class="adv">
+    <summary>Discogs token (optional)</summary>
+    <p class="meta">Without a token Discogs allows 25 requests a minute, which is plenty for loading a collection. A personal access token from <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">Settings → Developers</a> raises that to 60 and lets you see your own private folders. It stays in this browser and is only sent to api.discogs.com.</p>
+    <input type="password" id="token" placeholder="Personal access token" spellcheck="false">
+  </details>
+</form>
+
+<div class="cols">
+<div class="colL">
+<div class="card stage" id="stage">
+  <button class="stgl" id="stgl" type="button" aria-controls="stage" aria-expanded="true" title="Collapse">▾</button>
+  <div class="disc" id="disc"></div>
+  <div id="result">
+    <div class="artist">Ready</div>
+    <div class="title">What’s on the turntable?</div>
+    <div class="meta">Load a collection, then hit the button.</div>
+  </div>
+  <button class="btn" id="pick" disabled>Pick a record</button>
+</div>
+
+<div class="card" id="topCard" hidden>
+  <details id="topDet" open>
+    <summary id="topHead">Most played</summary>
+    <ul id="topList" style="margin-top:6px"></ul>
+  </details>
+</div>
+
+<div class="card" id="pvCard" hidden>
+  <div class="np">
+    <div id="pvArt"></div>
+    <div class="npinfo">
+      <div class="artist">Preview</div>
+      <div class="npt" id="pvTitle"></div>
+      <div class="meta" id="pvArtist"></div>
+      <div class="meta" id="pvMeta"></div>
+      <div class="meta npv" id="pvVibe"></div>
+      <div class="meta" id="pvSpins" style="margin-top:6px"></div>
+    </div>
+  </div>
+  <div class="npbtns">
+    <button class="btn" id="pvPlay" type="button" style="margin:0;padding:8px 18px;font-size:14px">▶ Play this</button>
+    <button class="btn ghost" id="pvQueue" type="button">＋ Queue</button>
+    <button class="btn ghost" id="pvFav" type="button" aria-pressed="false">☆ Favorite</button>
+    <button class="btn ghost" id="pvClose" type="button">Close</button>
+  </div>
+  <div class="nplinks" id="pvLinks"></div>
+  <div class="meta" id="pvCommunity"></div>
+  <p class="about" id="pvText" hidden></p>
+  <div class="meta" id="pvNote" hidden></div>
+  <details id="pvTr" hidden style="margin-top:16px">
+    <summary id="pvTrSum">Tracklist</summary>
+    <ul id="pvTrList" class="tracks"></ul>
+  </details>
+  <details id="pvPairs" hidden style="margin-top:16px">
+    <summary id="pvPairSum">Pairs well with</summary>
+    <div class="meta" id="pvPairNote" style="margin-top:6px"></div>
+    <ul id="pvPairList" style="margin-top:6px"></ul>
+  </details>
+</div>
+
+<div class="card" id="npCard" hidden>
+  <div class="np">
+    <div id="npArt"></div>
+    <div class="npinfo">
+      <div class="artist">Now playing</div>
+      <div class="npt" id="npTitle"></div>
+      <div class="meta" id="npArtist"></div>
+      <div class="meta" id="npMeta"></div>
+      <div class="meta npv" id="npVibe"></div>
+      <div class="meta" id="npSpins" style="margin-top:6px"></div>
+    </div>
+  </div>
+  <div class="npbtns">
+    <button class="btn ghost" id="npFav" type="button" aria-pressed="false">☆ Favorite</button>
+    <button class="btn ghost" id="npUndo" type="button" hidden>Undo last spin</button>
+    <button class="btn ghost" id="npNext" type="button" hidden>Play next ▶</button>
+    <button class="btn ghost" id="npStop">Stop</button>
+  </div>
+  <div class="nplinks" id="npLinks"></div>
+  <div class="meta" id="npCommunity"></div>
+  <p class="about" id="npText" hidden></p>
+  <div class="meta" id="npNote" hidden></div>
+  <details id="npTr" hidden open style="margin-top:16px">
+    <summary id="npTrSum">Tracklist</summary>
+    <ul id="npTrList" class="tracks"></ul>
+  </details>
+  <details id="npPairs" hidden style="margin-top:16px">
+    <summary id="npPairSum">Pairs well with</summary>
+    <div class="meta" id="npPairNote" style="margin-top:6px"></div>
+    <ul id="npPairList" style="margin-top:6px"></ul>
+  </details>
+</div>
+
+<div class="card" id="statsCard" hidden>
+  <details id="statsDet" open>
+    <summary id="statsHead">Explore the collection</summary>
+    <div class="meta" id="statsNote" style="margin-top:6px">Tap any bar to filter.</div>
+    <div class="stats" id="stats"></div>
+    <div class="row" style="justify-content:space-between;margin-top:12px">
+      <div class="meta" id="yearsNote" style="flex:1 1 auto;margin:0"></div>
+      <button class="btn ghost" id="yearsBtn" type="button" style="flex:0 0 auto" hidden>Look up original years</button>
+    </div>
+  </details>
+</div>
+</div>
+
+<div class="colR">
+<div class="card" id="qCard" hidden>
+  <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="flex:1 1 auto;margin:0" id="qHead">Up next</h2><button class="btn ghost" id="qClear" type="button" style="flex:0 0 auto">Clear queue</button></div>
+  <ul id="qList"></ul>
+</div>
+
+<div class="card" id="filters" hidden>
+  <details id="filtDet" open>
+  <summary id="filtHead">Filters</summary>
+  <div class="row" style="margin-top:10px">
+    <div><label for="fArtist">Artist</label><select id="fArtist"></select></div>
+    <div><label for="fFormat">Format</label><select id="fFormat"></select></div>
+    <div><label for="fGenre">Genre</label><select id="fGenre"></select></div>
+    <div><label for="fStyle">Style</label><select id="fStyle"></select></div>
+    <div><label for="fLabel">Label</label><select id="fLabel"></select></div>
+    <div><label for="fDecade">Decade</label><select id="fDecade"></select></div>
+    <div id="folderWrap" hidden><label for="fFolder">Folder</label><select id="fFolder"></select></div>
+  </div>
+  <div class="check"><input type="checkbox" id="favOnly"><label for="favOnly">Favorites only</label></div>
+  <div class="check"><input type="checkbox" id="noRepeat" checked><label for="noRepeat">Don’t repeat records until I’ve been through them all</label></div>
+  <div class="row" style="justify-content:space-between;margin-top:8px">
+    <div class="count" id="pool" style="margin:0"></div>
+    <button class="btn ghost" id="clearFilters" type="button" style="flex:0 0 auto" hidden>Clear filters</button>
+  </div>
+  </details>
+</div>
+
+<div class="card" id="histCard" hidden>
+  <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="flex:1 1 auto;margin:0">Recently picked</h2><button class="btn ghost" id="clear" style="flex:0 0 auto">Clear</button></div>
+  <ul id="hist"></ul>
+</div>
+
+<div class="card" id="listCard" hidden>
+  <details id="matchDet">
+    <summary id="matchSum">Matching records</summary>
+    <div class="row" style="margin-top:10px">
+      <div class="grow"><label for="mSearch">Search</label><input type="text" id="mSearch" placeholder="Artist, title or label"></div>
+      <div style="flex:0 0 auto;min-width:120px"><label for="mSort">Sort</label><select id="mSort">
+        <option value="artist">Artist</option>
+        <option value="title">Title</option>
+        <option value="year">Year</option>
+        <option value="added">Recently added</option>
+      </select></div>
+    </div>
+    <ul id="matchList"></ul>
+  </details>
+</div>
+
+<div class="card" id="csvCard">
+  <details id="loader">
+    <summary>Import a CSV instead</summary>
+    <ol>
+      <li>On Discogs, go to <a href="https://www.discogs.com/users/export" target="_blank" rel="noopener">Settings → Export</a> and export your <b>Collection</b> (CSV).</li>
+      <li>Choose the file below, or paste its contents.</li>
+    </ol>
+    <input type="file" id="file" accept=".csv,text/csv,.txt">
+    <p class="meta">Or paste CSV text, or one record per line as <i>Artist - Title | Genre</i> (genre optional).</p>
+    <textarea id="paste" placeholder="Artist - Title"></textarea>
+    <button class="btn ghost" id="load" type="button" style="margin-top:8px">Load pasted text</button>
+  </details>
+</div>
+<p class="meta foot">Data from <a href="https://www.discogs.com/developers" target="_blank" rel="noopener">Discogs</a> and Wikipedia. Spins, favorites and the queue are saved only in this browser.</p>
+</div>
+</div>
+</main>
+</body>
+</html>
