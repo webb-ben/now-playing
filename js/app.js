@@ -31,7 +31,7 @@ paintTheme();
 
 /* ---------- State ---------- */
 let records = [], byKey = {}, FOLDERS = {}, collection = "";
-let PLAYS = {}, FAVS = {}, QUEUE = [], HIST = [], nowKey = "", pvKey = "", seen = {}, keepScroll = false, listCap = 200;
+let PLAYS = {}, FAVS = {}, NOTES = {}, QUEUE = [], HIST = [], nowKey = "", pvKey = "", seen = {}, keepScroll = false, listCap = 200;
 const MASTERS = read("np:masters") || {};          // master id -> original release year (0 when Discogs has none)
 const DETAILS = cache("releases", 400);            // release id -> tracklist, videos, community stats
 const WIKI = cache("wiki", 400);                   // record key -> Wikipedia intro
@@ -119,7 +119,7 @@ function useCollection(name, data) {
   setUrlUser(collection === CSV ? "" : collection);
   showUser(data.user);
   FOLDERS = {}; (data.folders || []).forEach(f => { FOLDERS[f[0]] = f[1]; });
-  PLAYS = readC("plays") || {}; FAVS = readC("favs") || {}; QUEUE = readC("queue") || []; HIST = readC("hist") || [];
+  PLAYS = readC("plays") || {}; FAVS = readC("favs") || {}; NOTES = readC("notes") || {}; QUEUE = readC("queue") || []; HIST = readC("hist") || [];
   nowKey = readC("now") || ""; pvKey = ""; seen = {};
   Object.keys(FILTERS).forEach(id => { $(id).value = ""; });
   $("favOnly").checked = false; $("mSearch").value = "";
@@ -475,6 +475,7 @@ function renderView(V) {
   renderTracks(r, V, det);
   renderSpins(V);
   renderPairs(r, V);
+  const nt = $(p + "MyNote"); if (document.activeElement !== nt) nt.value = NOTES[k] || "";
 }
 function renderAbout(r, V) {
   const k = key(r), w = WIKI.get(k) || {}, T = $(V.p + "Text"), N = $(V.p + "Note");
@@ -506,7 +507,10 @@ function renderTracks(r, V, det) {
 function renderPairs(r, V) {
   const box = $(V.p + "Pairs"), ul = $(V.p + "PairList"), note = $(V.p + "PairNote");
   ul.innerHTML = ""; box.hidden = false;
-  const ps = pairs(records, r);
+  const ps = pairs(records, r), qb = $(V.p + "PairQ");
+  const qk = ps.filter(x => QUEUE.indexOf(key(x.r)) < 0 && key(x.r) !== nowKey).slice(0, 3);
+  qb.hidden = !qk.length; qb.textContent = "Queue top " + qk.length + (qk.length === 1 ? " pairing" : " pairings");
+  qb.onclick = () => { qk.forEach(x => { if (QUEUE.length < 50) QUEUE.push(key(x.r)); }); qChanged(); };
   $(V.p + "PairSum").textContent = "Pairs well with" + (ps.length ? " (" + ps.length + ")" : "");
   if (!ps.length) { note.textContent = "No close matches in this collection by style and year."; return; }
   note.textContent = "Other artists sharing styles or genres, favoring nearby years" + (yearOf(r) ? " (this one: " + yearOf(r) + ")" : "") + ".";
@@ -545,7 +549,18 @@ function openPreview(r) {
 $("pvPlay").onclick = () => { const r = pvRec(); if (r) setNow(r); };
 $("pvQueue").onclick = () => { const r = pvRec(); if (r) toggleQueue(r); };
 $("pvClose").onclick = () => { pvKey = ""; renderPreview(); keepScroll = true; updatePool(); };
-[NP, PV].forEach(V => { $(V.p + "Fav").onclick = () => toggleFav(V); });
+[NP, PV].forEach(V => {
+  $(V.p + "Fav").onclick = () => toggleFav(V);
+  /* My notes: free text per record, kept with the collection; both cards stay in sync when they show the same record */
+  $(V.p + "MyNote").oninput = e => {
+    const k = V.k(); if (!k) return;
+    const v = e.target.value;
+    if (v.trim()) NOTES[k] = v; else delete NOTES[k];
+    storeC("notes", NOTES);
+    const o = V === NP ? PV : NP; if (o.k() === k) $(o.p + "MyNote").value = v;
+  };
+  $(V.p + "MyNote").onchange = () => { keepScroll = true; updatePool(); };
+});
 
 /* Most played: ranked by spin count, ties to the most recent spin */
 function renderTop() {
@@ -579,7 +594,7 @@ function renderList(p) {
   const list = sortRecords(search(p, $("mSearch").value), $("mSort").value);
   list.slice(0, listCap).forEach(r => {
     const li = el("li"), box = el("div", "mi");
-    box.appendChild(el("div", "mt", (FAVS[key(r)] ? "★ " : "") + r.title));
+    box.appendChild(el("div", "mt", (FAVS[key(r)] ? "★ " : "") + r.title + (NOTES[key(r)] ? " ✎" : "")));
     box.appendChild(el("div", "ma", r.artist || "Unknown artist"));
     box.appendChild(el("div", "mm", [yearOf(r) || "", fmtMain(r), r.label].filter(Boolean).join(" · ")));
     const g = genreLine(r); if (g) box.appendChild(el("div", "mv", g));
@@ -606,6 +621,18 @@ function show(r) {
   res.appendChild(el("div", "title", r.title));
   res.appendChild(el("div", "meta", [genreLine(r), r.label, fmtMain(r) || r.format, yearText(r)].filter(Boolean).join(" · ")));
 }
+/* Surprise mode: fewer spins and a longer wait since the last one both raise a record's odds; never-played records count triple */
+function weightedPick(p) {
+  const ws = p.map(r => {
+    const o = PLAYS[key(r)], n = o ? o.n : 0;
+    let w = 1 / (1 + n);
+    if (o && o.last) w *= 1 + Math.min((Date.now() - o.last) / 864e5, 180) / 60; else w *= 3;
+    return w;
+  });
+  let x = Math.random() * ws.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < p.length; i++) { x -= ws[i]; if (x <= 0) return p[i]; }
+  return p[p.length - 1];
+}
 function pickOne() {
   let p = pool();
   if (!p.length) return null;
@@ -614,7 +641,7 @@ function pickOne() {
     if (!fresh.length) { p.forEach(r => { delete seen[key(r)]; }); fresh = p; }
     p = fresh;
   }
-  const r = p[Math.floor(Math.random() * p.length)];
+  const r = $("surprise").checked ? weightedPick(p) : p[Math.floor(Math.random() * p.length)];
   seen[key(r)] = 1;
   return r;
 }
@@ -624,6 +651,8 @@ function setStage(c, save) {
   b.setAttribute("aria-expanded", c ? "false" : "true"); b.title = c ? "Expand" : "Collapse";
   if (save) store("np:stageCollapsed", c ? 1 : 0);
 }
+$("surprise").checked = !!read("np:surprise");
+$("surprise").onchange = () => store("np:surprise", $("surprise").checked ? 1 : 0);
 $("stgl").onclick = () => setStage(!$("stage").classList.contains("collapsed"), true);
 if (read("np:stageCollapsed")) setStage(true, false);
 $("pick").onclick = () => {

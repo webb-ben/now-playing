@@ -4,6 +4,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 :root[data-theme="dark"]{--bg:#15130f;--card:#201c17;--ink:#f1eadc;--muted:#a09684;--accent:#ff7a4d;--line:#3a332a}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Georgia,"Times New Roman",serif;min-height:100vh}
 main{max-width:640px;margin:0 auto;padding:24px 18px 48px}
 h1{font-size:28px;margin:0 0 4px;letter-spacing:-.5px}
@@ -28,8 +29,9 @@ button,select,input,textarea{font:inherit;font-family:system-ui,sans-serif}
 label{font-family:system-ui,sans-serif;font-size:12px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px}
 select,input[type=text]{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 textarea{width:100%;min-height:90px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
-.check{display:flex;gap:8px;align-items:center;font-family:system-ui,sans-serif;font-size:14px;margin-top:12px}
-.check label{margin:0;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)}
+.check{display:flex;gap:10px;align-items:flex-start;font-family:system-ui,sans-serif;font-size:14px;margin-top:12px}
+.check input{flex:0 0 auto;width:16px;height:16px;margin:1px 0 0;accent-color:var(--accent);cursor:pointer}
+.check label{margin:0;text-transform:none;letter-spacing:0;font-size:14px;line-height:18px;color:var(--ink);cursor:pointer}
 ul{list-style:none;padding:0;margin:0;font-family:system-ui,sans-serif;font-size:14px}
 li{padding:8px 0;border-bottom:1px solid var(--line)}
 li:last-child{border:0}

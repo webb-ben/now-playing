@@ -86,9 +86,11 @@ try{var _t=localStorage.getItem("np:theme");if(_t==="dark"||_t==="light")documen
     <summary id="pvTrSum">Tracklist</summary>
     <ul id="pvTrList" class="tracks"></ul>
   </details>
+  <div style="margin-top:16px"><label for="pvMyNote">My notes</label><textarea id="pvMyNote" rows="2" maxlength="600" style="min-height:56px" placeholder="e.g. great on the good speakers, skip side B"></textarea></div>
   <details id="pvPairs" hidden style="margin-top:16px">
     <summary id="pvPairSum">Pairs well with</summary>
     <div class="meta" id="pvPairNote" style="margin-top:6px"></div>
+    <button class="btn ghost" id="pvPairQ" type="button" style="margin-top:6px" hidden>Queue top 3</button>
     <ul id="pvPairList" style="margin-top:6px"></ul>
   </details>
 </div>
@@ -119,9 +121,11 @@ try{var _t=localStorage.getItem("np:theme");if(_t==="dark"||_t==="light")documen
     <summary id="npTrSum">Tracklist</summary>
     <ul id="npTrList" class="tracks"></ul>
   </details>
+  <div style="margin-top:16px"><label for="npMyNote">My notes</label><textarea id="npMyNote" rows="2" maxlength="600" style="min-height:56px" placeholder="e.g. great on the good speakers, skip side B"></textarea></div>
   <details id="npPairs" hidden style="margin-top:16px">
     <summary id="npPairSum">Pairs well with</summary>
     <div class="meta" id="npPairNote" style="margin-top:6px"></div>
+    <button class="btn ghost" id="npPairQ" type="button" style="margin-top:6px" hidden>Queue top 3</button>
     <ul id="npPairList" style="margin-top:6px"></ul>
   </details>
 </div>
@@ -158,6 +162,7 @@ try{var _t=localStorage.getItem("np:theme");if(_t==="dark"||_t==="light")documen
     <div id="folderWrap" hidden><label for="fFolder">Folder</label><select id="fFolder"></select></div>
   </div>
   <div class="check"><input type="checkbox" id="favOnly"><label for="favOnly">Favorites only</label></div>
+  <div class="check"><input type="checkbox" id="surprise"><label for="surprise">Surprise me: favor records I haven’t played much, or not in a while</label></div>
   <div class="check"><input type="checkbox" id="noRepeat" checked><label for="noRepeat">Don’t repeat records until I’ve been through them all</label></div>
   <div class="row" style="justify-content:space-between;margin-top:8px">
     <div class="count" id="pool" style="margin:0"></div>
