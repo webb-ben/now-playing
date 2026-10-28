@@ -75,3 +75,11 @@ test("moods come from hand-written vibe words first, then Discogs styles", () =>
   assert.ok(matches(A, { mood: "2" }, {}));
   assert.ok(!matches(D, { mood: "2" }, {}));
 });
+
+test("pairs can include wantlist records, capped so owned ones stay in front", () => {
+  const wants = [1, 2, 3, 4].map(i => rec({ id: "w" + i, artist: "Want " + i, title: "W" + i, year: 2012, genres: ["Rock"], styles: ["Dream Pop", "Indie Rock"], want: true }));
+  const p = pairs(ALL.concat(wants), A);
+  assert.equal(p.filter(x => x.r.want).length, 3);
+  assert.ok(p.some(x => !x.r.want));
+  assert.equal(pairs(ALL.concat(wants), A, 8, 0).filter(x => x.r.want).length, 0);
+});

@@ -1,8 +1,9 @@
-import { setToken, getUser, getFolders, getCollection, getRelease, getMaster } from "./discogs.js";
+import { setToken, getUser, getFolders, getCollection, getWants, getRelease, getMaster } from "./discogs.js";
 import { fromDiscogsList, fromText, key } from "./records.js";
 import { yearOf, decade, fmtMain, labels, moodsOf, moodName, vibeWords, matches, tally, byName, sortRecords, search, pairs, baseTitle } from "./explore.js";
 import { read, store, setCollection, readC, storeC, cache } from "./store.js";
 import { fetchWiki } from "./wiki.js";
+import { mbYears } from "./musicbrainz.js";
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -30,7 +31,7 @@ $("themeBtn").onclick = () => {
 paintTheme();
 
 /* ---------- State ---------- */
-let records = [], byKey = {}, FOLDERS = {}, collection = "";
+let records = [], WANTS = [], byKey = {}, FOLDERS = {}, collection = "";
 let PLAYS = {}, FAVS = {}, NOTES = {}, QUEUE = [], HIST = [], nowKey = "", pvKey = "", seen = {}, keepScroll = false, listCap = 200;
 const MASTERS = read("np:masters") || {};          // master id -> original release year (0 when Discogs has none)
 const DETAILS = cache("releases", 400);            // release id -> tracklist, videos, community stats
@@ -38,7 +39,16 @@ const WIKI = cache("wiki", 400);                   // record key -> Wikipedia in
 const FILTERS = { fArtist: "artist", fFormat: "format", fGenre: "genre", fStyle: "style", fLabel: "label", fDecade: "decade", fMood: "mood", fFolder: "folder" };
 
 function recByKey(k) { return byKey[k] || null; }
-function applyMasters() { records.forEach(r => { if (r.masterId && MASTERS[r.masterId]) r.origYear = MASTERS[r.masterId]; }); }
+function applyMasters() { records.concat(WANTS).forEach(r => { if (r.masterId && MASTERS[r.masterId]) r.origYear = MASTERS[r.masterId]; }); }
+/* Original years saved in the repo by scripts/build-years.mjs; years already looked up in this browser win */
+fetch("data/years.json").then(r => r.ok ? r.json() : {}).then(saved => {
+  let added = 0;
+  Object.keys(saved).forEach(id => { if (MASTERS[id] === undefined) { MASTERS[id] = saved[id]; added++; } });
+  if (!added) return;
+  store("np:masters", MASTERS);
+  if (!records.length) return;
+  applyMasters(); fillFilters(); keepScroll = true; updatePool(); renderNow(); renderPreview();
+}).catch(() => {});
 
 /* ---------- Loading a collection ---------- */
 let ctl = null;
@@ -57,13 +67,9 @@ function parseUser(s) {
   const m = /discogs\.com\/(?:[a-z]{2}\/)?user\/([^/?#]+)/i.exec(s);
   return m ? decodeURIComponent(m[1]) : s;
 }
-function setUrlUser(name) {
-  try {
-    const u = new URL(location.href);
-    if (name) u.searchParams.set("user", name); else u.searchParams.delete("user");
-    history.replaceState(null, "", u);
-  } catch (e) {}
-}
+/* Opening the page with ?user=<name> is a shared link: just that collection, without the username box or CSV import */
+const shared = () => document.body.classList.contains("shared");
+function shareUrl(name) { return location.origin + location.pathname + "?user=" + encodeURIComponent(name); }
 function showUser(u) {
   $("userInfo").hidden = !u;
   if (!u) return;
@@ -72,6 +78,11 @@ function showUser(u) {
   $("userLink").href = u.uri || "https://www.discogs.com/user/" + encodeURIComponent(u.username);
   $("userMeta").textContent = [u.location, u.num_collection != null ? u.num_collection + " in collection" : "",
     u.num_wantlist ? u.num_wantlist + " on wantlist" : ""].filter(Boolean).join(" · ");
+  if (!shared()) {
+    const a = el("a", null, "Share link"); a.href = shareUrl(u.username);
+    a.title = "A link that opens just this collection";
+    $("userMeta").appendChild(document.createTextNode(" · ")); $("userMeta").appendChild(a);
+  }
 }
 
 async function loadUser(input, force) {
@@ -86,6 +97,7 @@ async function loadUser(input, force) {
     useCollection(name, cached);
     $("status").textContent = cached.records.length + " records · saved in this browser " + fmtDate(cached.fetched) + ". Refresh to update.";
     ctl = null;
+    if (!cached.wants && cached.user) addWants(cached.user.username, cached);   // saved before wantlists were loaded
     return;
   }
   busyUI(true);
@@ -95,29 +107,47 @@ async function loadUser(input, force) {
     showUser(u);
     const items = await getCollection(u.username, { onProgress: progress, signal: my.signal });
     const folders = await getFolders(u.username, my.signal);
+    $("status").textContent = "Loading wantlist…";
+    const wants = await getWants(u.username, { signal: my.signal });
     const data = {
       fetched: Date.now(),
       user: { username: u.username, name: u.name, avatar: u.avatar_url, uri: u.uri, location: u.location, num_collection: u.num_collection, num_wantlist: u.num_wantlist },
       folders: folders.filter(f => f.id !== 0).map(f => [String(f.id), f.name]),
-      records: fromDiscogsList(items)
+      records: fromDiscogsList(items),
+      wants: wantRecords(wants, items)
     };
     if (!store("np:" + u.username.toLowerCase() + ":collection", data)) console.warn("Collection too large to save in this browser");
     useCollection(u.username, data);
     if (!data.records.length) $("status").textContent = u.username + "’s collection is empty.";
   } catch (e) {
     if (e.name === "AbortError") return;
+    document.body.classList.remove("shared");   // a broken shared link still needs a way to search
     $("status").textContent = e.message || "Couldn’t reach Discogs. Check your connection and try again.";
   } finally {
     if (ctl === my) { ctl = null; busyUI(false); }
   }
 }
 
+/* Wantlist records, marked r.want, leaving out anything already in the collection */
+function wantRecords(wantItems, have) {
+  const ids = {};
+  have.forEach(x => { ids[String(x.id || (x.basic_information || {}).id)] = 1; });
+  return fromDiscogsList(wantItems).filter(r => !ids[r.id]).map(r => Object.assign(r, { want: true }));
+}
+async function addWants(username, data) {
+  try {
+    data.wants = wantRecords(await getWants(username), data.records);
+    store("np:" + username.toLowerCase() + ":collection", data);
+    if (collection.toLowerCase() === username.toLowerCase()) { WANTS = data.wants; applyMasters(); renderNow(); renderPreview(); }
+  } catch (e) {}
+}
+
 function useCollection(name, data) {
   collection = name === CSV ? CSV : name;
   setCollection(collection);
   store("np:last", collection);
-  setUrlUser(collection === CSV ? "" : collection);
   showUser(data.user);
+  WANTS = data.wants || [];
   FOLDERS = {}; (data.folders || []).forEach(f => { FOLDERS[f[0]] = f[1]; });
   PLAYS = readC("plays") || {}; FAVS = readC("favs") || {}; NOTES = readC("notes") || {}; QUEUE = readC("queue") || []; HIST = readC("hist") || [];
   nowKey = readC("now") || ""; pvKey = ""; seen = {};
@@ -223,34 +253,39 @@ function renderStats(p) {
   renderYearsNote();
 }
 
-/* Discogs gives each item the year of that pressing. The original year lives on the master release,
-   which takes one request per record, so it is looked up on demand and remembered. */
-let yearsCtl = null;
-function missingYears() { return records.filter(r => r.masterId && MASTERS[r.masterId] === undefined); }
+/* Discogs gives each item the year of that pressing. The original year comes from MusicBrainz (100 albums
+   per request), then from the Discogs master for anything MusicBrainz doesn't know (one request each). */
+let yearsCtl = null, yearsErr = "";
+function missingYears() { return records.concat(WANTS).filter(r => r.masterId && MASTERS[r.masterId] === undefined); }
 function renderYearsNote() {
   const m = missingYears(), b = $("yearsBtn");
   if (yearsCtl) return;
-  b.hidden = !m.length; b.textContent = "Look up original years";
+  b.hidden = !m.length; b.textContent = yearsErr ? "Try again" : "Look up original years";
   $("yearsNote").textContent = m.length
-    ? "Decades use the pressing year for " + m.length + " record" + (m.length === 1 ? "" : "s") + ". Looking up original years takes about " + Math.max(1, Math.ceil(m.length / (read("np:token") ? 58 : 23))) + " min."
+    ? (yearsErr ? yearsErr + " " : "") + "Decades use the pressing year for " + m.length + " record" + (m.length === 1 ? "" : "s") + "."
     : "";
 }
 $("yearsBtn").onclick = async () => {
   if (yearsCtl) { yearsCtl.abort(); return; }
   const my = yearsCtl = new AbortController(), todo = missingYears(), ids = Array.from(new Set(todo.map(r => r.masterId)));
-  $("yearsBtn").textContent = "Stop";
+  $("yearsBtn").textContent = "Stop"; yearsErr = "";
   let done = 0;
   try {
+    const titles = {}; todo.forEach(r => { titles[r.masterId] = r.title; });
+    $("yearsNote").textContent = "Looking up original years on MusicBrainz…";
+    try { Object.assign(MASTERS, await mbYears(ids, { titles, signal: my.signal })); }
+    catch (e) { if (e.name === "AbortError") throw e; console.warn("MusicBrainz", e); }
+    store("np:masters", MASTERS);
     for (const id of ids) {
       if (MASTERS[id] !== undefined) { done++; continue; }
-      $("yearsNote").textContent = "Looking up original years… " + done + " of " + ids.length;
+      $("yearsNote").textContent = "Looking up the rest on Discogs… " + done + " of " + ids.length;
       try { MASTERS[id] = (await getMaster(id, my.signal)).year || 0; }
       catch (e) { if (e.name === "AbortError") break; if (e.status === 404) MASTERS[id] = 0; else throw e; }
       done++;
       if (done % 5 === 0) store("np:masters", MASTERS);
     }
   } catch (e) {
-    $("yearsNote").textContent = e.message || "Couldn’t reach Discogs.";
+    if (e.name !== "AbortError") yearsErr = "Couldn’t finish: " + (e.status ? e.message : "Discogs isn’t responding, try again in a minute.");
   } finally {
     store("np:masters", MASTERS);
     yearsCtl = null;
@@ -420,7 +455,10 @@ async function loadDetails(r) {
     });
     const mid = r.masterId || d.master_id;
     if (mid && MASTERS[mid] === undefined) {
-      try { MASTERS[mid] = (await getMaster(mid)).year || 0; } catch (e) { if (e.status === 404) MASTERS[mid] = 0; }
+      try { const y = (await mbYears([mid], { titles: { [mid]: r.title } }))[mid]; if (y) MASTERS[mid] = y; } catch (e) {}
+      if (MASTERS[mid] === undefined) {
+        try { MASTERS[mid] = (await getMaster(mid)).year || 0; } catch (e) { if (e.status === 404) MASTERS[mid] = 0; }
+      }
       store("np:masters", MASTERS);
       if (MASTERS[mid]) { r.masterId = mid; applyMasters(); }
     }
@@ -510,20 +548,23 @@ function renderTracks(r, V, det) {
 function renderPairs(r, V) {
   const box = $(V.p + "Pairs"), ul = $(V.p + "PairList"), note = $(V.p + "PairNote");
   ul.innerHTML = ""; box.hidden = false;
-  const ps = pairs(records, r), qb = $(V.p + "PairQ");
-  const qk = ps.filter(x => QUEUE.indexOf(key(x.r)) < 0 && key(x.r) !== nowKey).slice(0, 3);
+  const ps = pairs(records.concat(WANTS), r), qb = $(V.p + "PairQ");
+  const qk = ps.filter(x => !x.r.want && QUEUE.indexOf(key(x.r)) < 0 && key(x.r) !== nowKey).slice(0, 3);
   qb.hidden = !qk.length; qb.textContent = "Queue top " + qk.length + (qk.length === 1 ? " pairing" : " pairings");
   qb.onclick = () => { qk.forEach(x => { if (QUEUE.length < 50) QUEUE.push(key(x.r)); }); qChanged(); };
   $(V.p + "PairSum").textContent = "Pairs well with" + (ps.length ? " (" + ps.length + ")" : "");
   if (!ps.length) { note.textContent = "No close matches in this collection by style and year."; return; }
-  note.textContent = "Other artists sharing styles or genres, favoring nearby years" + (yearOf(r) ? " (this one: " + yearOf(r) + ")" : "") + ".";
+  note.textContent = "Other artists sharing styles or genres, favoring nearby years" + (yearOf(r) ? " (this one: " + yearOf(r) + ")" : "") + "."
+    + (ps.some(x => x.r.want) ? " Records marked Wantlist aren’t in the collection yet." : "");
   ps.forEach(x => {
     const li = el("li"); li.style.cssText = "display:flex;gap:10px;align-items:center";
     const d = el("div", "mi");
-    d.appendChild(el("div", "mt", x.r.title));
+    const t = el("div", "mt", x.r.title);
+    if (x.r.want) t.appendChild(el("span", "wtag", "Wantlist"));
+    d.appendChild(t);
     d.appendChild(el("div", "ma", [x.r.artist, yearOf(x.r)].filter(Boolean).join(" · ")));
     d.appendChild(el("div", "mv", x.sh.join(", ") + (x.d === 0 ? " · same year" : x.d !== null ? " · " + x.d + " yr" + (x.d === 1 ? "" : "s") + " apart" : "")));
-    li.appendChild(cover(x.r)); li.appendChild(d); li.appendChild(rowButtons(x.r));
+    li.appendChild(cover(x.r)); li.appendChild(d); li.appendChild(x.r.want ? wantButtons(x.r) : rowButtons(x.r));
     ul.appendChild(li);
   });
 }
@@ -534,6 +575,17 @@ function rowButtons(r) {
   const pb = el("button", "btn ghost qbtn", key(r) === nowKey ? "▶ Playing" : "▶ Play"); pb.type = "button";
   pb.setAttribute("aria-label", "Play " + r.title); pb.onclick = () => setNow(r);
   rb.appendChild(pv); rb.appendChild(pb); rb.appendChild(queueBtn(r));
+  return rb;
+}
+/* Not owned, so no Play / Queue: just where to find it */
+function wantButtons(r) {
+  const rb = el("div", "rbtns");
+  [["Discogs ↗", "https://www.discogs.com/release/" + r.id, "View " + r.title + " on Discogs"],
+   ["Listen ↗", yt(r.artist + " " + baseTitle(r.title)), "Search YouTube for " + r.title]].forEach(([t, u, label]) => {
+    const a = el("a", "btn ghost qbtn", t); a.href = u; a.target = "_blank"; a.rel = "noopener";
+    a.setAttribute("aria-label", label); a.style.cssText = "text-decoration:none;text-align:center";
+    rb.appendChild(a);
+  });
   return rb;
 }
 function renderNow() { renderView(NP); renderTop(); }
@@ -718,7 +770,7 @@ $("load").onclick = () => ingest($("paste").value);
 
 setToken($("token").value);
 const urlUser = new URLSearchParams(location.search).get("user"), last = read("np:last");
-if (urlUser) loadUser(urlUser, false);
+if (urlUser) { document.body.classList.add("shared"); loadUser(urlUser, false); }
 else if (last === CSV && read("np:" + CSV + ":collection")) useCollection(CSV, read("np:" + CSV + ":collection"));
 else if (last) loadUser(last, false);
 else $("username").focus();

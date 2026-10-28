@@ -86,8 +86,9 @@ export function nw(s) {
 }
 export function baseTitle(s) { return (s || "").replace(/\s*\([^)]*\)/g, "").trim(); }
 
-/* Pairings: other records by different artists that share styles (strongest) or genres, favoring nearby release years */
-export function pairs(records, r, n = 8) {
+/* Pairings: other records by different artists that share styles (strongest) or genres, favoring nearby release years.
+   Wantlist records (r.want) can be passed in too; at most maxWants of them make the list so owned records stay in front. */
+export function pairs(records, r, n = 8, maxWants = 3) {
   const S = r.styles || [], G = r.genres || [], k = key(r), out = [], seen = {};
   if (!S.length && !G.length) return out;
   const y = yearOf(r), RM = moodsOf(r);
@@ -104,5 +105,6 @@ export function pairs(records, r, n = 8) {
     out.push({ r: o, sc, d, sh: ss.length ? ss : gs });
   });
   out.sort((a, b) => b.sc - a.sc || (a.d === null ? 99 : a.d) - (b.d === null ? 99 : b.d));
-  return out.slice(0, n);
+  let w = 0;
+  return out.filter(x => !x.r.want || ++w <= maxWants).slice(0, n);
 }

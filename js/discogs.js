@@ -28,7 +28,13 @@ async function send(path, params, signal) {
   for (let attempt = 0; attempt < 3; attempt++) {
     await waitForSlot();
     if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const res = await fetch(u, { signal });
+    let res;
+    try { res = await fetch(u, { signal }); }
+    catch (e) {
+      // Discogs sends its rate-limit responses without CORS headers, so the browser only sees a network error
+      if (e.name === "AbortError" || attempt > 0) throw e;
+      recent = Array(60).fill(Date.now()); continue;
+    }
     if (res.status === 429) { recent = Array(60).fill(Date.now()); continue; }
     if (!res.ok) {
       let msg = "";
@@ -79,6 +85,22 @@ export async function getCollection(username, { onProgress, signal } = {}) {
     pages = (j.pagination && j.pagination.pages) || 1;
     items.push(...(j.releases || []));
     if (onProgress) onProgress(items.length, (j.pagination && j.pagination.items) || items.length);
+  }
+  return items;
+}
+
+/* Every release on the wantlist; a private wantlist just gives none */
+export async function getWants(username, { signal } = {}) {
+  const items = [];
+  try {
+    for (let page = 1, pages = 1; page <= pages; page++) {
+      const j = await get("/users/" + enc(username) + "/wants", { per_page: 100, page }, signal);
+      pages = (j.pagination && j.pagination.pages) || 1;
+      items.push(...(j.wants || []));
+    }
+  } catch (e) {
+    if (e.name === "AbortError") throw e;
+    if (e.status !== 403 && e.status !== 404) console.warn("Wantlist", e);
   }
   return items;
 }
